@@ -1,0 +1,54 @@
+using System;
+using System.Text;
+using System.Net;
+using System.Net.Sockets;
+
+namespace SocketTcpServer
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+   
+            int value;
+            IPEndPoint ipPoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 8005);
+            Socket listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp); // создаем сокет
+            try
+            {
+                listenSocket.Bind(ipPoint);
+                listenSocket.Listen(10);// 
+                Console.WriteLine("Сервер запущен. Ожидание подключений...");
+                while (true)
+                {
+                    Socket handler = listenSocket.Accept(); // извлекает из очереди ожидающих запрос
+                    StringBuilder builder = new StringBuilder();
+                    int bytes = 0; // количество полученных байтов
+                    byte[] data = new byte[256]; // буфер для получаемых данных
+                    do
+                    {
+                        bytes = handler.Receive(data);// остановка получения данных
+                        value = BitConverter.ToInt32(data, 0);
+                    }
+                    while (handler.Available > 0);
+                    Console.WriteLine(DateTime.Now.ToShortTimeString() + ": " + value.ToString());
+
+                    if(value%3==0)
+                    {
+                        
+                        Console.WriteLine("Количество элементов делящихся на 3 " + value);
+                                                                
+                    }
+                    string s = value.ToString();
+                    data = Encoding.Unicode.GetBytes(s);
+                    handler.Send(data);
+                    handler.Shutdown(SocketShutdown.Both);
+                    handler.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
+        }
+    }
+}
