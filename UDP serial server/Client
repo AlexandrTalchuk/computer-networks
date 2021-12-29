@@ -1,0 +1,54 @@
+using System;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+
+namespace UDPclient
+{
+    class Program
+    {
+        static void Main()
+        {
+
+            try
+            {
+
+                IPEndPoint udpEndPoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 8082);
+                Socket udpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                udpSocket.Bind(udpEndPoint);
+                while (true)
+                {
+                    Console.WriteLine("Введите строку");
+                    string message = Console.ReadLine();
+                    EndPoint serverEndPoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 8000);
+                    udpSocket.SendTo(Encoding.UTF8.GetBytes(message), serverEndPoint);
+                    byte[] buffer = new byte[512];
+                    int size = 0;
+                    StringBuilder data = new StringBuilder();
+                    do
+                    {
+                        size = udpSocket.ReceiveFrom(buffer, ref serverEndPoint);
+                        data.Append(Encoding.UTF8.GetString(buffer));
+                    } while (udpSocket.Available > 0);
+                    Console.WriteLine("Сообщение получено\nОтвет сервера: " + data);
+                    Console.WriteLine("Вы хотите продолжить?\n1 - Да\nДргуое - Нет");
+                    if (Int32.Parse(Console.ReadLine()) != 1)
+                    {
+                        break;
+                    }
+
+                }
+
+                Console.ReadKey();
+
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.Message);   
+            }
+
+        }
+
+    }
+
+}
