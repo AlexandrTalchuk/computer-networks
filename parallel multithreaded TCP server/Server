@@ -1,0 +1,114 @@
+using System;
+using System.Text;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using DAL.Models;
+using Newtonsoft.Json;
+using System.IO;
+using System.Linq;
+
+namespace Server
+{
+    class Program
+    {
+        static readonly int port = 8005;
+        static readonly string ipAddress = "127.0.0.1";
+        static readonly string path = @"c:\Users\nao\Desktop\Tours.json";
+
+        static List<Tour> tours;
+        static int numberOfClients = 0;
+
+        static void Main(string[] args)
+        {
+            tours = new List<Tour>();
+            if (File.Exists(path))
+            {
+                using (StreamReader file = File.OpenText(path))
+                {
+                    JsonSerializer serializer = new JsonSerializer();   // создание преобразователя
+                    tours = (List<Tour>)serializer.Deserialize(file, typeof(List<Tour>)); // преобразование из json в коллекцию объектов класса
+                }
+            }
+
+            var iPEndPoint = new IPEndPoint(IPAddress.Parse(ipAddress), port);
+            Socket listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+            listener.Bind(iPEndPoint);
+            listener.Listen(16);
+
+            Console.WriteLine("Server is ready!");
+
+            while (true)
+            {
+                Process(listener.Accept()); // создание нового потока для работы с клиентом
+            }
+        }
+
+        static async Task Process(Socket handler)
+        {
+            string clientName = "Client";
+            string clientAddress = handler.RemoteEndPoint.ToString();
+            string message = "";
+
+            if (handler.Connected)
+            {
+                numberOfClients++;
+                clientName += numberOfClients;
+                Message($"{clientName} ({clientAddress}) connected.");
+            }
+
+            while (true)
+            {
+                var storage = new byte[1024];
+                int bytesRec = await handler.ReceiveAsync(storage, SocketFlags.None);
+                string request = Encoding.Unicode.GetString(storage, 0, bytesRec);
+
+                if (request.StartsWith("GET"))
+                {
+                    int maxPrice = 0;
+                    string price = request.Split(" ")[1];
+                    if (price != "0")
+                    {
+                        maxPrice = int.Parse(price);
+                        var res = tours.Where(t => t.Price <= maxPrice);
+                        message = JsonConvert.SerializeObject(res);
+                    }
+                    else
+                        message = JsonConvert.SerializeObject(tours);
+                }
+                else if (request.StartsWith("ADD"))
+                {
+                    Tour tour = JsonConvert.DeserializeObject<Tour>(request.Split("\n")[1]);
+                    tours.Add(tour);
+                    message = "Tour successfully added!";
+                }
+                else if (request.StartsWith("exit"))
+                {
+                    using (StreamWriter file = File.CreateText(path))
+                    {
+                        JsonSerializer serializer = new JsonSerializer();
+                        serializer.Serialize(file, tours);
+                    }
+
+                    Message($"{clientName} ({clientAddress}) disconnected.");
+                    numberOfClients--;
+                    Message("Number of clients: " + numberOfClients);
+                    handler.Shutdown(SocketShutdown.Both);
+                    handler.Close();    
+                    return;
+                }
+                Message($"{clientName}: {request}");
+
+                byte[] msg = Encoding.Unicode.GetBytes(message);
+                await handler.SendAsync(msg, SocketFlags.None);
+            }
+        }
+
+        static void Message(string text)
+        {
+            Console.WriteLine($"[{DateTime.Now.ToShortTimeString()}] {text}");
+        }
+    }
+}
