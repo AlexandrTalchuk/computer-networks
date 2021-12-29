@@ -1,0 +1,256 @@
+using System;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using ClassLib;
+using Newtonsoft.Json;
+
+namespace Client
+{
+    class Program
+    {
+        static readonly int port = 8005;
+        static readonly string address = "127.0.0.1";
+        static string key;
+        static string msg = "";
+        static void Main(string[] args)
+        {
+            IPEndPoint iPEndPoint = new IPEndPoint(IPAddress.Parse(address), port);
+            Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            while (!socket.Connected)
+                socket.Connect(iPEndPoint);
+            Console.WriteLine("Клиент готов\n");
+            string response = "";
+            while (true)
+            {
+                Console.WriteLine("1. Добавить студента\n2. Список студентов\n" +
+                    "3. Изменить студента\n4. Удалить информацию\n" +
+                    "5. Поиск\n6. Сортировка\n0. Выход\n");
+                key = Console.ReadLine();
+                switch (key)
+                {
+                    case "1":
+                        msg = "Add";
+                        Student student = CreateStudent();
+                        msg += JsonConvert.SerializeObject(student);
+                        response = Send(socket, msg);
+                        Console.WriteLine(response);
+                        break;
+                    case "2":
+                        msg = "Read";
+                        response = Send(socket, msg);
+                        List<Student> students = JsonConvert.DeserializeObject<List<Student>>(response);
+                        foreach (var stud in students)
+                        {
+                            Console.WriteLine(stud.ToString());
+                        }
+                        break;
+                    case "3":
+                        msg = "Edit";
+                        Console.WriteLine("Введите имя");
+                        string name = Console.ReadLine();
+                        msg += name + "\n";
+                        Student toEdit = EditStudent();
+                        if (toEdit == null)
+                            break;
+                        msg += JsonConvert.SerializeObject(toEdit);
+                        response = Send(socket, msg);
+                        Console.WriteLine(response);
+                        break;
+                    case "4":
+                        msg = "Del";
+                        Console.WriteLine("Введите имя");
+                        msg += Console.ReadLine();
+                        response = Send(socket, msg);
+                        Console.WriteLine(response);
+                        break;
+                    case "5":
+                        msg = "Srch";
+                        Console.WriteLine("Введите данные для поиска");
+                        msg += Console.ReadLine();
+                        response = Send(socket, msg);
+                        List<Student> result = JsonConvert.DeserializeObject<List<Student>>(response);
+                        foreach (var stud in result)
+                        {
+                            Console.WriteLine(stud.ToString());
+                        }
+                        break;
+                    case "6":
+                        msg = "Sort";
+                        Console.WriteLine("1. Имя\n2. Номер группы\n3. Оценки");
+                        key = Console.ReadLine();
+                        if (key == "1")
+                            msg += "name";
+                        else if (key == "2")
+                            msg += "num";
+                        else if (key == "3")
+                            msg += "mark";
+                        else
+                        {
+                            Console.WriteLine("Ошибка ввода");
+                            break;
+                        }
+                        response = Send(socket, msg);
+                        Console.WriteLine(response);
+                        break;
+                    case "0":
+                        Send(socket, "EXIT");
+                        return;
+                    default:
+                        Console.WriteLine("Ошибка ввода");
+                        continue;
+                }
+            }
+        }
+
+        private static Student EditStudent()
+        {
+            Student result = new Student();
+            string tmp = "";
+            float tempf = 0f;
+            Console.WriteLine("Что Вы хотите изменить?");
+            Console.WriteLine("1. Имя\n2. Номер группы\n3. Оценки");
+            string k = Console.ReadLine();
+            switch (k)
+            {
+                case "1":
+                    Console.WriteLine("Имя:");
+                    tmp = Console.ReadLine();
+                    result.Name = tmp;
+                    break;
+                case "2":
+                    Console.WriteLine("Номер группы:");
+                    tmp = Console.ReadLine();
+                    result.GroupNumber = tmp;
+                    break;
+                case "3":
+                    result.Marks = new List<Subject>();
+                    do
+                    {
+                        Console.WriteLine("Математика: ");
+                        tmp = Console.ReadLine();
+                    } while (float.TryParse(tmp, out tempf) && tempf >= 10f && tempf <= 1);
+                    result.Marks.Add(new Subject { Name = "Математика", Mark = tempf });
+
+                    do
+                    {
+                        Console.WriteLine("ООП: ");
+                        tmp = Console.ReadLine();
+                    } while (float.TryParse(tmp, out tempf) && tempf >= 10f && tempf <= 1);
+                    result.Marks.Add(new Subject { Name = "ООП", Mark = tempf });
+
+                    do
+                    {
+                        Console.WriteLine("КС: ");
+                        tmp = Console.ReadLine();
+                    } while (float.TryParse(tmp, out tempf) && tempf >= 10f && tempf <= 1);
+                    result.Marks.Add(new Subject { Name = "КС", Mark = tempf });
+                    break;
+                default:
+                    Console.WriteLine("Ошибка ввода");
+                    return null;
+            }
+            return result;
+        }
+
+        private static string Send(Socket socket, string message)
+        {
+            string response;
+            byte[] data = Encoding.Unicode.GetBytes(message);
+            socket.Send(data);
+            Array.Clear(data, 0, data.Length);
+
+            if (message == "EXIT")
+            {
+                socket.Shutdown(SocketShutdown.Both);
+                socket.Close();
+                return null;
+            }
+
+            byte[] receive = new byte[4156];
+            int sz = socket.Receive(receive);
+            response = Encoding.Unicode.GetString(receive, 0, sz);
+            return response;
+        }
+        private static Student CreateStudent()
+        {
+            String temp = "";
+            float tempf = 0f;
+            Student student = new Student() { Marks = new List<Subject>() };
+
+            Console.WriteLine("Имя: ");
+            temp = Console.ReadLine();
+            student.Name = temp;
+
+            Console.WriteLine("Номер группы: ");
+            temp = Console.ReadLine();
+            student.GroupNumber = temp;
+
+            Console.WriteLine("Оценки");
+            do
+            {
+                Console.WriteLine("Математика: ");
+                temp = Console.ReadLine();
+            } while (float.TryParse(temp, out tempf) && tempf >= 10f && tempf <= 1);
+            student.Marks.Add(new Subject { Name = "Математика", Mark = tempf });
+
+            do
+            {
+                Console.WriteLine("ООП: ");
+                temp = Console.ReadLine();
+            } while (float.TryParse(temp, out tempf) && tempf >= 10f && tempf <= 1);
+            student.Marks.Add(new Subject { Name = "ООП", Mark = tempf });
+
+            do
+            {
+                Console.WriteLine("КС: ");
+                temp = Console.ReadLine();
+            } while (float.TryParse(temp, out tempf) && tempf >= 10f && tempf <= 1);
+            student.Marks.Add(new Subject { Name = "КС", Mark = tempf });
+
+            return student;
+        }
+    }
+}
+namespace ClassLib
+{
+    public class Student
+    {
+        public string Name { get; set; }
+        public string GroupNumber { get; set; }
+        public List<Subject> Marks { get; set; }
+        public float AverageMark
+        {
+            get
+            {
+                if (Marks == null)
+                    return 0f;
+                float temp = 0f;
+                foreach (var item in Marks)
+                {
+                    temp += item.Mark;
+                }
+                return temp / Marks.Count;
+            }
+        }
+        public override string ToString()
+        {
+            string marks = "";
+            foreach (var item in Marks)
+            {
+                marks += item.Name + " " + item.Mark + "\n";
+            }
+            marks += "Среднее: " + AverageMark;
+            return Name + " " + GroupNumber + "\n" + marks + "\n";
+        }
+    }
+}
+namespace ClassLib
+{
+    public class Subject
+    {
+        public string Name { get; set; }
+        public float Mark { get; set; }
+    }
+}
