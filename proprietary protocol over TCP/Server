@@ -1,0 +1,185 @@
+using DAL.EF;
+using DAL.Models;
+using Microsoft.EntityFrameworkCore;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading.Tasks;
+
+
+namespace Server
+{
+    class Program
+    {
+        static readonly string address = "127.0.0.1";
+        static readonly int port = 8005;
+
+        static void Main(string[] args)
+        {
+            var optionsBuilder = new DbContextOptionsBuilder<EMailContext>();
+            var options = optionsBuilder
+                .UseSqlServer(@"Server=(localdb)\mssqllocaldb;Database=EMailService;Trusted_Connection=True;")
+                .UseLazyLoadingProxies()
+                .Options;
+
+            IPEndPoint endPoint = new IPEndPoint(IPAddress.Parse(address), port);
+            Socket listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+            listener.Bind(endPoint);
+            listener.Listen(8);
+            Console.WriteLine("Server is ready!");
+
+            using (EMailContext db = new EMailContext(options))
+            {
+                while (true)
+                    Process(listener.Accept(), db);
+            }
+        }
+
+        static async Task Process(Socket handler, EMailContext db)
+        {
+            string request = "";
+            string response = "";
+
+            User user = null;
+
+            Console.WriteLine("Someone Connected");
+
+            while (true)
+            {
+                byte[] data = new byte[1024];
+                int sz = await handler.ReceiveAsync(data, SocketFlags.None);
+                request = Encoding.Unicode.GetString(data, 0, sz);
+                response = "";
+                Console.WriteLine(request);
+
+                if (request.StartsWith("login"))
+                {
+                    user = await Login(request, db);
+                    if(user == null)
+                        response = "Error. Wrong login or password.";
+                }
+                if (request.StartsWith("register"))
+                    await Register(request, db);
+                if (request.StartsWith("send"))
+                    await Send(request, db, user);
+                if (request.StartsWith("get"))
+                    response = await GetMessages(request, db, user);
+                if(request.StartsWith("quit"))
+                {
+                    handler.Shutdown(SocketShutdown.Both);
+                    handler.Close();
+                    return;
+                }
+
+                if (response == "")
+                    response += "Success";
+                Array.Clear(data, 0, data.Length);
+                data = Encoding.Unicode.GetBytes(response);
+                await handler.SendAsync(data, SocketFlags.None);
+            }
+        }
+
+        private static async Task<string> GetMessages(string request, EMailContext db, User user)
+        {
+            string[] substrings = request.Split(" ");
+            string type;
+            int messageId;
+            if (substrings.Length == 3)
+            {
+                type = substrings[1];
+                messageId = int.Parse(substrings[2]);
+            } else
+            {
+                type = "any";
+                messageId = 0;
+            }
+            string result = "";
+            Message msg = null;
+
+            Console.WriteLine(messageId);
+            if (messageId != 0)
+                msg = await db.Messages.FindAsync(messageId);
+            else
+            {
+                foreach (var res in user.ReceivedMessages)
+                {
+                    result += $"res> {res.Id} : [{res.DateTime}] : from {res.Sender.Name}\n";
+                }
+                foreach (var sent in user.SentMessages)
+                {
+                    result += $"sent> {sent.Id} : [{sent.DateTime}] : to {sent.Receiver.Name}\n";
+                }
+                return result;
+            }
+
+            Console.WriteLine(type);
+            if (type == "res" && user.ReceivedMessages.Contains(msg))
+            {
+                result +=
+                    $"{msg.Id}. {msg.Sender.Name} -> {msg.Receiver.Name}\n" +
+                    $"[{msg.DateTime}]\n" +
+                    $"{msg.Content}";
+            }
+            else if (type == "sent" && user.SentMessages.Contains(msg))
+            {
+                result +=
+                    $"{msg.Id}. {msg.Sender.Name} -> {msg.Receiver.Name}\n" +
+                    $"[{msg.DateTime}]\n" +
+                    $"{msg.Content}";
+            }
+            else
+                result += "nothing";
+            Console.WriteLine(result);
+            return result;
+        }
+
+        private static async Task Send(string request, EMailContext db, User user)
+        {
+            string[] substrings = request.Split(" ");
+            string receiver = substrings[1];
+            string content = "";
+            for(int i = 2; i < substrings.Length; i++)
+                content += substrings[i] + " ";
+
+            var message = new Message()
+            {
+                Receiver = await db.Users.FirstOrDefaultAsync(u => u.Name == receiver),
+                Sender = await db.Users.FindAsync(user.Id),
+                Content = content,
+                DateTime = DateTime.Now
+            };
+            await db.Messages.AddAsync(message);
+            await db.SaveChangesAsync();
+        }
+
+        private static async Task Register(string req, EMailContext db)
+        {
+            string[] substrings = req.Split(" ");
+            string login = substrings[1];
+            string password = substrings[2];
+            var user = new User()
+            {
+                Name = login,
+                Password = password,
+                ReceivedMessages = new List<Message>(),
+                SentMessages = new List<Message>()
+            };
+
+            await db.Users.AddAsync(user);
+            await db.SaveChangesAsync();
+        }
+
+        private static async Task<User> Login(string req, EMailContext db)
+        {
+            string[] substrings = req.Split(" ");
+            string login = substrings[1];
+            string password = substrings[2];
+
+            return await db.Users.FirstOrDefaultAsync(u => u.Name == login && u.Password == password);
+        }
+    }
+}
