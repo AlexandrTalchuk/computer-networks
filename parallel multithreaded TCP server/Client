@@ -1,0 +1,120 @@
+using DAL.Models;
+using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+
+namespace Client
+{
+    class Program
+    {
+        static readonly int port = 8005;
+        static readonly string address = "127.0.0.1";
+        static string key;
+        static string message;
+        static string response;
+
+        static void Main(string[] args)
+        {
+            IPEndPoint iPEndPoint = new IPEndPoint(IPAddress.Parse(address), port);
+            Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            while(!socket.Connected)
+                socket.Connect(iPEndPoint);
+            Console.WriteLine("Client is ready!\n");
+
+            while (true)
+            {
+                Console.WriteLine("1. Add new tour;\n2. Get tours;\nexit - exit;\n");
+                key = Console.ReadLine();
+                switch(key)
+                {
+                    case "1":
+                        message = "ADD\n";
+                        message += JsonConvert.SerializeObject(CreateTour());
+                        break;
+                    case "2":
+                        message = "GET ";
+                        int tempPrice = 0;
+                        do
+                        {
+                            Console.WriteLine("Enter price (0 if any): ");
+                        } while (!int.TryParse(Console.ReadLine(), out tempPrice));
+                        message += tempPrice + "\n";
+                        break;
+                    case "exit":
+                        socket.Send(Encoding.Unicode.GetBytes(key));
+                        socket.Shutdown(SocketShutdown.Both);
+                        socket.Close();
+                        return;
+                    default:
+                        Console.WriteLine("Wrong command!");
+                        continue;
+                }
+
+                byte[] data = Encoding.Unicode.GetBytes(message);
+                socket.Send(data);
+                Array.Clear(data, 0, data.Length);
+
+                byte[] receive = new byte[4156];
+                int sz = socket.Receive(receive);
+                response = Encoding.Unicode.GetString(receive, 0, sz);
+                Console.WriteLine($"[{DateTime.Now}] Server: ");
+                if (key == "2")
+                {
+                    List<Tour> tours = JsonConvert.DeserializeObject<List<Tour>>(response);
+                    if (tours == null)
+                        continue;
+                    foreach (Tour tour in tours)
+                        Console.WriteLine(tour.ToString());
+                } else
+                    Console.WriteLine(response);
+                Console.WriteLine();
+            }
+        }
+
+        public static Tour CreateTour()
+        {
+            Tour newTour = new Tour();
+            float tempPrice = 0;
+            int tempDays = 0;
+
+            Console.WriteLine("Enter name of a tour: ");
+            newTour.Name = Console.ReadLine();
+
+            do
+            {
+                Console.WriteLine("Enter price: ");
+            } while (!float.TryParse(Console.ReadLine(), out tempPrice));
+            newTour.Price = tempPrice;
+
+            do
+            {
+                Console.WriteLine("Enter length of a tour (in days): ");
+            } while (!int.TryParse(Console.ReadLine(), out tempDays));
+            newTour.TimeLength = tempDays;
+
+            Console.WriteLine("Enter type of transport: ");
+            newTour.Transport = Console.ReadLine();
+
+            return newTour;
+        }
+    }
+}
+
+namespace DAL.Models
+{
+    public class Tour
+    {
+        public string Name { get; set; } = "Unnamed";
+        public float Price { get; set; } = 0.0f;
+        public int TimeLength { get; set; } = 0;
+        public string Transport { get; set; } = "No Information";
+    
+        public override string ToString()
+        {
+            return $"{Name} : {Price}$ : {TimeLength} days : {Transport}";
+        }
+    }
+}
