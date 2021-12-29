@@ -1,0 +1,188 @@
+using ClassLib;
+using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+
+
+namespace Server
+{
+    class Program
+    {
+        static readonly int port = 8005;
+        static readonly string ipAddress = "127.0.0.1";
+        static List<Student> students;
+        static void Main(string[] args)
+        {
+            students = new List<Student>()
+            {
+                new Student{Name="Кондрашов Даниил", GroupNumber = "924401",
+                                Marks = new List<Subject>
+                                {
+                                    new Subject(){Name = "Математика", Mark = 10f},
+                                    new Subject(){Name = "ООП", Mark = 10f},
+                                    new Subject(){Name = "КС", Mark = 10f}
+                                }
+                },
+                new Student{Name="Александр Тальчук", GroupNumber = "924401",
+                                Marks = new List<Subject>
+                                {
+                                    new Subject(){Name = "Математика", Mark = 5f},
+                                    new Subject(){Name = "ООП", Mark = 4f},
+                                    new Subject(){Name = "КС", Mark = 7f}
+                                }
+                },
+                new Student{Name="Анатолий Рымар", GroupNumber = "924401",
+                                Marks = new List<Subject>
+                                {
+                                    new Subject(){Name = "Математика", Mark = 2f},
+                                    new Subject(){Name = "ООП", Mark = 2f},
+                                    new Subject(){Name = "КС", Mark = 2f}
+                                }
+                },
+            };
+
+            var iPEndPoint = new IPEndPoint(IPAddress.Parse(ipAddress), port);
+            var listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+            listener.Bind(iPEndPoint);
+            listener.Listen(16);
+            Console.WriteLine("Сервер запущен!");
+
+            while (true)
+            {
+                Process(listener.Accept());
+            }
+        }
+
+        private static async void Process(Socket handler)
+        {
+            byte[] msg;
+            while (true)
+            {
+                string message = "";
+                var storage = new byte[1024];
+                int bytesRec = await handler.ReceiveAsync(storage, SocketFlags.None);
+                string request = Encoding.Unicode.GetString(storage, 0, bytesRec);
+
+                if (request.StartsWith("Add"))
+                {
+                    request = request.Remove(0, 3);
+                    Student s = JsonConvert.DeserializeObject<Student>(request);
+                    students.Add(s);
+                    message = "Студент " + s.Name + " добавлен";
+                    Console.WriteLine(message);
+                }
+                else if (request.StartsWith("Read"))
+                {
+                    message = JsonConvert.SerializeObject(students);
+                }
+                else if (request.StartsWith("Edit"))
+                {
+                    request = request.Remove(0, 4);
+                    string[] substrings = request.Split();
+                    string name = substrings[0];
+                    request = substrings[1];
+                    Console.WriteLine(name);
+                    Student edit = JsonConvert.DeserializeObject<Student>(request);
+                    Student toEdit = students.FirstOrDefault(s => s.Name == name);
+                    if (toEdit == null)
+                    {
+                        message = "Пользователь не найден";
+                        msg = Encoding.Unicode.GetBytes(message);
+                        await handler.SendAsync(msg, SocketFlags.None);
+                        continue;
+                    }
+                    if (edit.Name != null)
+                        toEdit.Name = edit.Name;
+                    if (edit.GroupNumber != null)
+                        toEdit.GroupNumber = edit.GroupNumber;
+                    if (edit.Marks != null)
+                        toEdit.Marks = edit.Marks;
+                    message = "Пользователь успешно изменен";
+                }
+                else if (request.StartsWith("Del"))
+                {
+                    request = request.Remove(0, 3);
+                    int amount = students.RemoveAll(s => s.Name == request);
+                    message = "Удалено " + amount + " студентов";
+                    Console.WriteLine(message);
+                }
+                else if (request.StartsWith("Srch"))
+                {
+                    request = request.Remove(0, 4);
+                    var searchResult = students
+                        .Where(s => s.Name.Contains(request) || s.GroupNumber.Contains(request))
+                        .ToList();
+                    message = JsonConvert.SerializeObject(searchResult);
+                }
+                else if (request.StartsWith("Sort"))
+                {
+                    request = request.Remove(0, 4);
+                    if (request == "name")
+                        students = students.OrderBy(s => s.Name).ToList();
+                    else if (request == "num")
+                        students = students.OrderBy(s => s.GroupNumber).ToList();
+                    else if (request == "mark")
+                        students = students.OrderBy(s => s.AverageMark).ToList();
+                    message = "Сортировка успешно завершена";
+                    Console.WriteLine(message);
+                }
+                else if (request.StartsWith("EXIT"))
+                {                 
+                    handler.Shutdown(SocketShutdown.Both);
+                    handler.Close();
+                    return;
+                }
+                msg = Encoding.Unicode.GetBytes(message);
+                await handler.SendAsync(msg, SocketFlags.None);
+            }
+        }
+    }
+}
+
+namespace ClassLib
+{
+    public class Student
+    {
+        public string Name { get; set; }
+        public string GroupNumber { get; set; }
+        public List<Subject> Marks { get; set; }
+        public float AverageMark
+        {
+            get
+            {
+                if (Marks == null)
+                    return 0f;
+                float temp = 0f;
+                foreach (var item in Marks)
+                {
+                    temp += item.Mark;
+                }
+                return temp / Marks.Count;
+            }
+        }
+
+        public override string ToString()
+        {
+            string marks = "";
+            foreach (var item in Marks)
+            {
+                marks += item.Name + " " + item.Mark + "\n";
+            }
+            marks += "Среднее: " + AverageMark;
+            return Name + " " + GroupNumber + "\n" + marks + "\n";
+        }
+    }
+}
+namespace ClassLib
+{
+    public class Subject
+    {
+        public string Name { get; set; }
+        public float Mark { get; set; }
+    }
+}
